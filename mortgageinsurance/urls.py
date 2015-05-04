@@ -1,6 +1,7 @@
 from django.conf.urls import patterns, url
+from mortgageinsurance import views
 
 urlpatterns = patterns(
     '',
-    url(r'$', 'mortgageinsurance.views.mortgage_insurance', name='mortgage_insurance'),
+    url(r'$', views.MortgageInsurance.as_view()),
 )

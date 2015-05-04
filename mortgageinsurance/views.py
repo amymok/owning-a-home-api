@@ -2,6 +2,7 @@ from django.shortcuts import render
 
 from rest_framework import status
 from rest_framework.decorators import api_view
+from rest_framework.views import APIView
 from rest_framework.response import Response
 
 import math
@@ -10,12 +11,11 @@ from mortgageinsurance.models import Monthly, Upfront
 from mortgageinsurance.params_serializer import ParamsSerializer
 
 
-@api_view(['GET'])
-def mortgage_insurance(request):
+class MortgageInsurance(APIView):
     """ Return the monthly and upfront mortgage insurance premiums in percentages (i.e. 1.7% returns 1.7) 
         If no premiums were found, no data will be returned. """
 
-    if request.method == 'GET':
+    def get(self, request, format=None):
 
         loan_type = request.QUERY_PARAMS.get('loan_type')
         rate_structure = request.QUERY_PARAMS.get('rate_structure')
