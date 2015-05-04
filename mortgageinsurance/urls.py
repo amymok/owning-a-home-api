@@ -3,5 +3,5 @@ from mortgageinsurance import views
 
 urlpatterns = patterns(
     '',
-    url(r'$', views.MortgageInsurance.as_view()),
+    url(r'^$', views.MortgageInsurance.as_view()),
 )
