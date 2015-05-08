@@ -2,6 +2,8 @@ from django.db import models
 from django.db.models import Q, Avg, Count
 from decimal import *
 
+import operator
+
 
 class Monthly(models.Model):
 
@@ -112,27 +114,24 @@ class Upfront(models.Model):
 
         ltv = ((params_data['loan_amount'] / params_data['price']) * 100).quantize(Decimal('.001'), rounding=ROUND_HALF_UP)
 
+        filter_list = [
+                        Q(min_ltv__lte=ltv),
+                        Q(max_ltv__gte=ltv),
+                    ]
+
         if params_data['loan_type'] in (Monthly.FHA, Monthly.FHA_HB):
-            result = Upfront.objects.get(loan_type=Monthly.FHA, 
-                                        min_ltv__lte=ltv, 
-                                        max_ltv__gte=ltv,
-                                        )
+            filter_list += [ Q(loan_type=Monthly.FHA) ]
+            result = Upfront.objects.get(reduce(operator.and_, filter_list))
 
         elif params_data['loan_type'] in (Monthly.VA, Monthly.VA_HB) :
 
-            if params_data['va_status'] == Upfront.DISABLED:
-                result = Upfront.objects.get(loan_type=Monthly.VA,
-                                            va_status=Upfront.DISABLED,
-                                            min_ltv__lte=ltv,
-                                            max_ltv__gte=ltv,
-                                            )
-            else :
-                result = Upfront.objects.get(loan_type=Monthly.VA,
-                                            va_status=params_data['va_status'],
-                                            va_first_use=bool(params_data['va_first_use']),
-                                            min_ltv__lte=ltv,
-                                            max_ltv__gte=ltv,
-                                            )
+            filter_list += [ Q(loan_type=Monthly.VA), Q(va_status=params_data['va_status']) ]
+
+            if params_data['va_status'] != Upfront.DISABLED:
+                filter_list += [ Q(va_first_use=bool(params_data['va_first_use'])) ]
+        
+            result = Upfront.objects.get(reduce(operator.and_, filter_list))
+        
 
         premium = float('nan') if result == {} or result is None or result.premium is None \
             else round(result.premium, 3)

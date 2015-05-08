@@ -9,6 +9,7 @@ from rest_framework import status
 from ratechecker.models import Product, Region, Rate, Adjustment
 from ratechecker.ratechecker_parameters import ParamsSerializer
 
+import operator
 
 def get_rates(params_data, data_load_testing=False):
     """ params_data is a method parameter of type RateCheckerParameters."""
@@ -22,38 +23,108 @@ def get_rates(params_data, data_load_testing=False):
     region_ids = Region.objects.filter(
         state_id=params_data.get('state')).values_list('region_id', flat=True)
 
-    rates = Rate.objects.filter(
-        region_id__in=region_ids,
-        product__loan_purpose=params_data.get('loan_purpose'),
-        product__pmt_type=params_data.get('rate_structure'),
-        product__loan_type=params_data.get('loan_type'),
-        product__max_ltv__gte=params_data.get('max_ltv'),
-        product__loan_term=params_data.get('loan_term'),
-        product__max_loan_amt__gte=params_data.get('loan_amount'),
-        product__max_fico__gte=params_data.get('maxfico'),
-        product__min_fico__lte=params_data.get('minfico'))
+    # rates = Rate.objects.filter(
+    #     region_id__in=region_ids,
+    #     product__loan_purpose=params_data.get('loan_purpose'),
+    #     product__pmt_type=params_data.get('rate_structure'),
+    #     product__loan_type=params_data.get('loan_type'),
+    #     product__max_ltv__gte=params_data.get('max_ltv'),
+    #     product__loan_term=params_data.get('loan_term'),
+    #     product__max_loan_amt__gte=params_data.get('loan_amount'),
+    #     product__max_fico__gte=params_data.get('maxfico'),
+    #     product__min_fico__lte=params_data.get('minfico'))
+
+    rate_filter_list = [
+                            Q(region_id__in=region_ids),
+                            Q(product__loan_purpose=params_data.get('loan_purpose')),
+                            Q(product__pmt_type=params_data.get('rate_structure')),
+                            Q(product__loan_type=params_data.get('loan_type')),
+                            Q(product__max_ltv__gte=params_data.get('max_ltv')),
+                            Q(product__loan_term=params_data.get('loan_term')),
+                            Q(product__max_loan_amt__gte=params_data.get('loan_amount')),
+                            Q(product__max_fico__gte=params_data.get('maxfico')),
+                            Q(product__min_fico__lte=params_data.get('minfico')),
+                        ]
+
+    prod_filter_list = [
+                            Q(loan_purpose=params_data.get('loan_purpose')),
+                            Q(pmt_type=params_data.get('rate_structure')),
+                            Q(loan_type=params_data.get('loan_type')),
+                            Q(max_ltv__gte=params_data.get('max_ltv')),
+                            Q(loan_term=params_data.get('loan_term')),
+                            Q(max_loan_amt__gte=params_data.get('loan_amount')),
+                            Q(max_fico__gte=params_data.get('maxfico')),
+                            Q(min_fico__lte=params_data.get('minfico')),
+                        ]
+
 
     if params_data.get('loan_type') != 'FHA-HB':
-        rates = rates.filter(product__min_loan_amt__lte=params_data.get('loan_amount'))
+        rate_filter_list += [ Q(product__min_loan_amt__lte=params_data.get('loan_amount')) ]
+        #rates = rates.filter(product__min_loan_amt__lte=params_data.get('loan_amount'))
+        prod_filter_list += [ Q(min_loan_amt__lte=params_data.get('loan_amount')) ]
 
     if params_data.get('rate_structure') == 'ARM':
-        rates = rates.filter(
-            product__int_adj_term=params_data.get('arm_type')[:-2],
-            product__io=bool(params_data.get('io')))
+        rate_filter_list += [   Q(product__int_adj_term=params_data.get('arm_type')[:-2]),
+                                Q(product__io=bool(params_data.get('io'))),
+                            ]
+        prod_filter_list += [   Q(int_adj_term=params_data.get('arm_type')[:-2]),
+                                Q(io=bool(params_data.get('io'))),
+                            ]
+        # rates = rates.filter(
+        #     product__int_adj_term=params_data.get('arm_type')[:-2],
+        #     product__io=bool(params_data.get('io')))
 
     if data_load_testing:
-        rates = rates.filter(
-            product__institution=params_data.get('institution'),
-            lock=params_data.get('max_lock'))
+        rate_filter_list += [   Q(product__institution=params_data.get('institution')),
+                                Q(lock=params_data.get('max_lock')),
+                            ]
+        prod_filter_list += [   Q(institution=params_data.get('institution')),
+                                #Q(lock=params_data.get('max_lock')),
+                            ]        
+        # rates = rates.filter(
+        #     product__institution=params_data.get('institution'),
+        #     lock=params_data.get('max_lock'))
     else:
-        rates = rates.filter(
-            lock__lte=params_data.get('max_lock'),
-            lock__gt=params_data.get('min_lock'))
+        rate_filter_list += [   Q(lock__lte=params_data.get('max_lock')),
+                                Q(lock__gt=params_data.get('min_lock')),
+                            ]
+        # rates = rates.filter(
+        #     lock__lte=params_data.get('max_lock'),
+        #     lock__gt=params_data.get('min_lock'))
 
-    deduped_rates = rates.values_list('product__plan_id', 'region_id').distinct()
-    product_ids = [p[0] for p in deduped_rates]
+    ## rates = Rate.objects.filter(reduce(operator.and_, rate_filter_list))
 
-    adjustments = Adjustment.objects.filter(product__plan_id__in=product_ids).filter(
+    product = Product.objects.filter(reduce(operator.and_, prod_filter_list)).values_list('plan_id', flat=True)
+
+    rates2 = Rate.objects.filter( Q(region_id__in=region_ids), 
+                                  Q(product__plan_id__in=product),
+                                  Q(lock__lte=params_data.get('max_lock')),
+                                  Q(lock__gt=params_data.get('min_lock')),)
+
+    deduped_rates_2 = rates2.values_list('product__plan_id', 'region_id').distinct()
+    product_ids_2 = [p[0] for p in deduped_rates_2]
+
+    ## deduped_rates = rates.values_list('product__plan_id', 'region_id').distinct()
+    ## product_ids = [p[0] for p in deduped_rates]
+
+
+
+    print "deduped_rate2"
+    print deduped_rates_2
+
+    ## print "dedubped_rate"
+    ## print deduped_rates
+
+    print 'product_ids_2'
+    print product_ids_2
+
+
+    ## print "product_ids"
+    ## print product_ids
+
+
+
+    adjustments = Adjustment.objects.filter(Q(product__plan_id__in=product_ids_2),
         Q(max_loan_amt__gte=params_data.get('loan_amount')) | Q(max_loan_amt__isnull=True),
         Q(min_loan_amt__lte=params_data.get('loan_amount')) | Q(min_loan_amt__isnull=True),
         Q(prop_type=params_data.get('property_type')) | Q(prop_type__isnull=True) | Q(prop_type=""),
@@ -64,6 +135,8 @@ def get_rates(params_data, data_load_testing=False):
         Q(max_ltv__gte=params_data.get('max_ltv')) | Q(max_ltv__isnull=True),
     ).values('product_id', 'affect_rate_type').annotate(sum_of_adjvalue=Sum('adj_value'))
 
+    print "adjustments"
+    #print adjustments
     summed_adj_dict = {}
     for adj in adjustments:
         current = summed_adj_dict.get(adj['product_id'], {})
@@ -71,7 +144,12 @@ def get_rates(params_data, data_load_testing=False):
         summed_adj_dict[adj['product_id']] = current
     available_rates = {}
     data_timestamp = ""
-    for rate in rates:
+
+    print "sumed_adj_dic"
+    print summed_adj_dict
+
+    for rate in rates2:
+##    for rate in rates:
         #TODO: check that it the same all the time, and do what if it is not?
         data_timestamp = rate.data_timestamp
         product = summed_adj_dict.get(rate.product_id, {})
