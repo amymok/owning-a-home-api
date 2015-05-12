@@ -20,6 +20,7 @@ def get_rates(params_data, data_load_testing=False):
     if data_load_testing:
         factor = -1
 
+    # First try to figure out all the region ids given the state
     region_ids = Region.objects.filter(
         state_id=params_data.get('state')).values_list('region_id', flat=True)
 
@@ -34,6 +35,7 @@ def get_rates(params_data, data_load_testing=False):
     #     product__max_fico__gte=params_data.get('maxfico'),
     #     product__min_fico__lte=params_data.get('minfico'))
 
+    # Need to filter out the list that include region_ids, and all of the given product params 
     rate_filter_list = [
                             Q(region_id__in=region_ids),
                             Q(product__loan_purpose=params_data.get('loan_purpose')),
@@ -57,12 +59,13 @@ def get_rates(params_data, data_load_testing=False):
                             Q(min_fico__lte=params_data.get('minfico')),
                         ]
 
-
+    # If FHA is high balanced, then also restrict min loan amount
     if params_data.get('loan_type') != 'FHA-HB':
         rate_filter_list += [ Q(product__min_loan_amt__lte=params_data.get('loan_amount')) ]
         #rates = rates.filter(product__min_loan_amt__lte=params_data.get('loan_amount'))
         prod_filter_list += [ Q(min_loan_amt__lte=params_data.get('loan_amount')) ]
 
+    # If rate structure is arm, also filter out the adj_term and io
     if params_data.get('rate_structure') == 'ARM':
         rate_filter_list += [   Q(product__int_adj_term=params_data.get('arm_type')[:-2]),
                                 Q(product__io=bool(params_data.get('io'))),
@@ -92,6 +95,7 @@ def get_rates(params_data, data_load_testing=False):
         #     lock__lte=params_data.get('max_lock'),
         #     lock__gt=params_data.get('min_lock'))
 
+    # Rate is then returned for that region and its product parameters
     ## rates = Rate.objects.filter(reduce(operator.and_, rate_filter_list))
 
     product = Product.objects.filter(reduce(operator.and_, prod_filter_list)).values_list('plan_id', flat=True)
@@ -101,7 +105,9 @@ def get_rates(params_data, data_load_testing=False):
                                   Q(lock__lte=params_data.get('max_lock')),
                                   Q(lock__gt=params_data.get('min_lock')),)
 
+    # only pick distincted product plan id and region id
     deduped_rates_2 = rates2.values_list('product__plan_id', 'region_id').distinct()
+    # only pull out product id
     product_ids_2 = [p[0] for p in deduped_rates_2]
 
     ## deduped_rates = rates.values_list('product__plan_id', 'region_id').distinct()
@@ -123,7 +129,7 @@ def get_rates(params_data, data_load_testing=False):
     ## print product_ids
 
 
-
+    # Adjustment where parameters supplied and product plan id, get the sum of the adjusted value
     adjustments = Adjustment.objects.filter(Q(product__plan_id__in=product_ids_2),
         Q(max_loan_amt__gte=params_data.get('loan_amount')) | Q(max_loan_amt__isnull=True),
         Q(min_loan_amt__lte=params_data.get('loan_amount')) | Q(min_loan_amt__isnull=True),
@@ -136,7 +142,7 @@ def get_rates(params_data, data_load_testing=False):
     ).values('product_id', 'affect_rate_type').annotate(sum_of_adjvalue=Sum('adj_value'))
 
     print "adjustments"
-    #print adjustments
+    print adjustments
     summed_adj_dict = {}
     for adj in adjustments:
         current = summed_adj_dict.get(adj['product_id'], {})
@@ -152,9 +158,23 @@ def get_rates(params_data, data_load_testing=False):
 ##    for rate in rates:
         #TODO: check that it the same all the time, and do what if it is not?
         data_timestamp = rate.data_timestamp
+        print "data_timestamp"
+        print data_timestamp
         product = summed_adj_dict.get(rate.product_id, {})
+        print "product"
+        print product
+        print "rate.total_points (before)"
+        print rate.total_points
+        print product.get('P', 0)
         rate.total_points += product.get('P', 0)
+        print "rate.total_points"
+        print rate.total_points
+        print "rate.base_rate (before)"
+        print rate.base_rate
+        print product.get('R', 0)
         rate.base_rate += product.get('R', 0)
+        print "rate.base_rate"
+        print rate.base_rate
         distance = abs(params_data.get('points') - rate.total_points)
         if float(distance) > 0.5:
             continue
